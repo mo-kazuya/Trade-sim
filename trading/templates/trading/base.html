@@ -1,0 +1,31 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}株取引バックテスト{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'trading/style.css' %}">
+</head>
+<body>
+  <header class="topbar">
+    <h1><a href="{% url 'trading:index' %}">📈 株取引シミュレーター</a></h1>
+    <nav>
+      <a href="{% url 'trading:index' %}">ダッシュボード</a>
+      <a href="/admin/">管理画面</a>
+    </nav>
+  </header>
+  <main class="container">
+    {% if messages %}
+      <ul class="messages">
+        {% for message in messages %}
+          <li class="{{ message.tags }}">{{ message }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+  <script src="{% static 'trading/chart.js' %}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

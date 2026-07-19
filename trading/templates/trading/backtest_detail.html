@@ -1,0 +1,106 @@
+{% extends "trading/base.html" %}
+
+{% block title %}{{ backtest.strategy_label }} — {{ backtest.stock.symbol }}{% endblock %}
+
+{% block content %}
+<p><a href="{% url 'trading:stock_detail' backtest.stock.symbol %}">← {{ backtest.stock.symbol }}</a></p>
+
+<div class="card">
+  <h2>{{ backtest.strategy_label }} <span class="muted">on {{ backtest.stock.symbol }}</span></h2>
+  <p class="muted">
+    期間: {{ backtest.start_date }} 〜 {{ backtest.end_date }} ／
+    初期資金: {{ backtest.initial_cash|floatformat:0 }} ／
+    手数料率: {{ backtest.commission }}
+    {% if params_items %}
+      ／ パラメータ:
+      {% for k, v in params_items %}{{ k }}={{ v }}{% if not forloop.last %}, {% endif %}{% endfor %}
+    {% endif %}
+  </p>
+
+  <div class="metrics">
+    <div class="metric">
+      <div class="k">最終資産</div>
+      <div class="v">{{ backtest.final_value|floatformat:0 }}</div>
+    </div>
+    <div class="metric">
+      <div class="k">トータルリターン</div>
+      <div class="v {% if backtest.total_return >= 0 %}pos{% else %}neg{% endif %}">
+        {{ backtest.total_return|floatformat:2 }}
+      </div>
+    </div>
+    <div class="metric">
+      <div class="k">Buy&amp;Hold リターン</div>
+      <div class="v">{{ backtest.buy_hold_return|floatformat:2 }}</div>
+    </div>
+    <div class="metric">
+      <div class="k">最大ドローダウン</div>
+      <div class="v neg">{{ backtest.max_drawdown|floatformat:2 }}</div>
+    </div>
+    <div class="metric">
+      <div class="k">シャープレシオ</div>
+      <div class="v">{{ backtest.sharpe_ratio|floatformat:2 }}</div>
+    </div>
+    <div class="metric">
+      <div class="k">取引回数</div>
+      <div class="v">{{ backtest.num_trades }}</div>
+    </div>
+    <div class="metric">
+      <div class="k">勝率</div>
+      <div class="v">{{ backtest.win_rate|floatformat:2 }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:20px;">
+  <h2>資産推移（エクイティカーブ）</h2>
+  <canvas id="equity"></canvas>
+  <div class="chart-legend">
+    <span><i class="swatch" style="background:#38bdf8"></i>資産額</span>
+    <span><i class="swatch" style="background:#22c55e"></i>買い</span>
+    <span><i class="swatch" style="background:#ef4444"></i>売り</span>
+  </div>
+</div>
+
+<div class="card" style="margin-top:20px;">
+  <h2>取引履歴（{{ trades|length }}件）</h2>
+  {% if trades %}
+  <table>
+    <thead>
+      <tr><th>日付</th><th>種別</th><th class="num">価格</th><th class="num">株数</th><th class="num">金額</th><th class="num">損益</th></tr>
+    </thead>
+    <tbody>
+    {% for t in trades %}
+      <tr>
+        <td>{{ t.date }}</td>
+        <td><span class="badge {% if t.side == 'BUY' %}buy{% else %}sell{% endif %}">{{ t.get_side_display }}</span></td>
+        <td class="num">{{ t.price|floatformat:2 }}</td>
+        <td class="num">{{ t.shares|floatformat:2 }}</td>
+        <td class="num">{{ t.value|floatformat:0 }}</td>
+        <td class="num {% if t.pnl and t.pnl >= 0 %}pos{% elif t.pnl %}neg{% endif %}">
+          {% if t.pnl != None %}{{ t.pnl|floatformat:0 }}{% else %}—{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <p class="muted">この期間中、シグナルによる取引は発生しませんでした。</p>
+  {% endif %}
+</div>
+
+<script id="equity-data" type="application/json">{{ equity_json|safe }}</script>
+<script>
+  const curve = JSON.parse(document.getElementById("equity-data").textContent);
+  const points = curve.map((p) => ({ date: p.date, value: p.value }));
+  const dateIndex = {};
+  curve.forEach((p, i) => { dateIndex[p.date] = i; });
+  const markers = [
+    {% for t in trades %}{ date: "{{ t.date|date:'Y-m-d' }}", side: "{{ t.side }}" },{% endfor %}
+  ].map((m) => ({ index: dateIndex[m.date], side: m.side }));
+
+  const canvas = document.getElementById("equity");
+  function render() { drawLineChart(canvas, [{ label: "資産額", color: "#38bdf8", points }], { markers }); }
+  render();
+  window.addEventListener("resize", render);
+</script>
+{% endblock %}

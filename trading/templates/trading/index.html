@@ -1,0 +1,124 @@
+{% extends "trading/base.html" %}
+
+{% block content %}
+<div class="grid cols-2">
+  <div class="card">
+    <h2>バックテストを実行</h2>
+    {% if stocks %}
+    <form method="post" action="{% url 'trading:run_backtest' %}">
+      {% csrf_token %}
+      <label for="id_stock">銘柄</label>
+      {{ form.stock }}
+
+      <label for="id_strategy">戦略</label>
+      {{ form.strategy }}
+      <div class="help" id="strategy-desc"></div>
+
+      <div id="strategy-params"></div>
+
+      <label for="id_initial_cash">初期資金</label>
+      {{ form.initial_cash }}
+
+      <label for="id_commission">手数料率</label>
+      {{ form.commission }}
+      <div class="help">{{ form.commission.help_text }}</div>
+
+      <button class="btn" type="submit">実行する</button>
+    </form>
+    {% else %}
+      <p class="muted">まだ銘柄がありません。次のコマンドでサンプルデータを生成してください：</p>
+      <pre>python manage.py seed_data</pre>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>銘柄一覧</h2>
+    {% if stocks %}
+    <table>
+      <thead><tr><th>シンボル</th><th>名称</th><th class="num">バー数</th><th></th></tr></thead>
+      <tbody>
+      {% for s in stocks %}
+        <tr>
+          <td><a href="{% url 'trading:stock_detail' s.symbol %}">{{ s.symbol }}</a></td>
+          <td>{{ s.name }}</td>
+          <td class="num">{{ s.bar_count }}</td>
+          <td><a href="{% url 'trading:compare' s.symbol %}">戦略比較 →</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <p class="muted">銘柄が登録されていません。</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card" style="margin-top:20px;">
+  <h2>最近のバックテスト</h2>
+  {% if backtests %}
+  <table>
+    <thead>
+      <tr>
+        <th>戦略</th><th>銘柄</th>
+        <th class="num">リターン</th><th class="num">B&H比</th>
+        <th class="num">最大DD</th><th class="num">シャープ</th>
+        <th class="num">取引数</th><th>日時</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for b in backtests %}
+      <tr>
+        <td><a href="{% url 'trading:backtest_detail' b.pk %}">{{ b.strategy_label }}</a></td>
+        <td>{{ b.stock.symbol }}</td>
+        <td class="num {% if b.total_return >= 0 %}pos{% else %}neg{% endif %}">{{ b.total_return|floatformat:2 }}</td>
+        <td class="num">{{ b.buy_hold_return|floatformat:2 }}</td>
+        <td class="num neg">{{ b.max_drawdown|floatformat:2 }}</td>
+        <td class="num">{{ b.sharpe_ratio|floatformat:2 }}</td>
+        <td class="num">{{ b.num_trades }}</td>
+        <td class="muted">{{ b.created_at|date:"m/d H:i" }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <p class="muted">まだバックテストがありません。</p>
+  {% endif %}
+</div>
+
+<script id="strategy-meta" type="application/json">{{ strategy_meta_json|safe }}</script>
+<script>
+  const META = JSON.parse(document.getElementById("strategy-meta").textContent);
+  const sel = document.getElementById("id_strategy");
+  const paramsBox = document.getElementById("strategy-params");
+  const descBox = document.getElementById("strategy-desc");
+
+  function renderParams() {
+    const key = sel.value;
+    const meta = META.find((m) => m.key === key);
+    paramsBox.innerHTML = "";
+    descBox.textContent = meta ? meta.description : "";
+    if (!meta) return;
+    meta.params.forEach((p) => {
+      const label = document.createElement("label");
+      label.textContent = p.label;
+      const input = document.createElement("input");
+      input.type = "number";
+      input.name = key + "__" + p.name;
+      input.value = p.default;
+      input.step = p.kind === "float" ? "0.1" : "1";
+      input.min = p.min;
+      input.max = p.max;
+      paramsBox.appendChild(label);
+      paramsBox.appendChild(input);
+      if (p.help) {
+        const h = document.createElement("div");
+        h.className = "help";
+        h.textContent = p.help;
+        paramsBox.appendChild(h);
+      }
+    });
+  }
+  sel.addEventListener("change", renderParams);
+  renderParams();
+</script>
+{% endblock %}

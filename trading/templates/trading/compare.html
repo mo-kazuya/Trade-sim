@@ -1,0 +1,59 @@
+{% extends "trading/base.html" %}
+
+{% block title %}戦略比較 — {{ stock.symbol }}{% endblock %}
+
+{% block content %}
+<p><a href="{% url 'trading:stock_detail' stock.symbol %}">← {{ stock.symbol }}</a></p>
+
+<div class="card">
+  <h2>戦略比較 <span class="muted">on {{ stock.symbol }}</span></h2>
+  <p class="muted">各戦略を既定パラメータで実行し、資産推移を重ねて表示しています。</p>
+  <canvas id="compare"></canvas>
+  <div class="chart-legend" id="legend"></div>
+</div>
+
+<div class="card" style="margin-top:20px;">
+  <h2>成績ランキング</h2>
+  <table>
+    <thead>
+      <tr><th>#</th><th>戦略</th><th class="num">リターン</th><th class="num">最大DD</th><th class="num">シャープ</th><th class="num">取引数</th><th class="num">勝率</th><th></th></tr>
+    </thead>
+    <tbody>
+    {% for b in results %}
+      <tr>
+        <td class="num">{{ forloop.counter }}</td>
+        <td>{{ b.strategy_label }}</td>
+        <td class="num {% if b.total_return >= 0 %}pos{% else %}neg{% endif %}">{{ b.total_return|floatformat:2 }}</td>
+        <td class="num neg">{{ b.max_drawdown|floatformat:2 }}</td>
+        <td class="num">{{ b.sharpe_ratio|floatformat:2 }}</td>
+        <td class="num">{{ b.num_trades }}</td>
+        <td class="num">{{ b.win_rate|floatformat:2 }}</td>
+        <td><a href="{% url 'trading:backtest_detail' b.pk %}">詳細 →</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<script id="series-data" type="application/json">{{ series_json|safe }}</script>
+<script>
+  const raw = JSON.parse(document.getElementById("series-data").textContent);
+  const series = raw.map((s, i) => ({
+    label: s.label,
+    color: window.CHART_COLORS[i % window.CHART_COLORS.length],
+    points: s.curve.map((p) => ({ date: p.date, value: p.value })),
+  }));
+
+  const legend = document.getElementById("legend");
+  series.forEach((s) => {
+    const el = document.createElement("span");
+    el.innerHTML = '<i class="swatch" style="background:' + s.color + '"></i>' + s.label;
+    legend.appendChild(el);
+  });
+
+  const canvas = document.getElementById("compare");
+  function render() { drawLineChart(canvas, series, { height: 360 }); }
+  render();
+  window.addEventListener("resize", render);
+</script>
+{% endblock %}

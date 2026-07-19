@@ -1,0 +1,50 @@
+{% extends "trading/base.html" %}
+
+{% block title %}{{ stock.symbol }} — 価格チャート{% endblock %}
+
+{% block content %}
+<p><a href="{% url 'trading:index' %}">← ダッシュボード</a></p>
+
+<div class="card">
+  <h2>{{ stock.symbol }} <span class="muted">{{ stock.name }}</span></h2>
+  <p class="muted">
+    期間: {{ first_date }} 〜 {{ last_date }} ／ バー数: {{ stock.bar_count }}
+    ／ <a href="{% url 'trading:compare' stock.symbol %}">全戦略で比較 →</a>
+  </p>
+  <canvas id="price"></canvas>
+</div>
+
+<div class="card" style="margin-top:20px;">
+  <h2>この銘柄のバックテスト</h2>
+  {% if backtests %}
+  <table>
+    <thead>
+      <tr><th>戦略</th><th class="num">リターン</th><th class="num">最大DD</th><th class="num">シャープ</th><th class="num">取引数</th><th>日時</th></tr>
+    </thead>
+    <tbody>
+    {% for b in backtests %}
+      <tr>
+        <td><a href="{% url 'trading:backtest_detail' b.pk %}">{{ b.strategy_label }}</a></td>
+        <td class="num {% if b.total_return >= 0 %}pos{% else %}neg{% endif %}">{{ b.total_return|floatformat:2 }}</td>
+        <td class="num neg">{{ b.max_drawdown|floatformat:2 }}</td>
+        <td class="num">{{ b.sharpe_ratio|floatformat:2 }}</td>
+        <td class="num">{{ b.num_trades }}</td>
+        <td class="muted">{{ b.created_at|date:"m/d H:i" }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <p class="muted">まだバックテストがありません。</p>
+  {% endif %}
+</div>
+
+<script id="price-data" type="application/json">{{ price_json|safe }}</script>
+<script>
+  const points = JSON.parse(document.getElementById("price-data").textContent);
+  const canvas = document.getElementById("price");
+  function render() { drawLineChart(canvas, [{ label: "終値", color: "#38bdf8", points }], {}); }
+  render();
+  window.addEventListener("resize", render);
+</script>
+{% endblock %}
