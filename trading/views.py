@@ -4,10 +4,10 @@ from django.contrib import messages
 from django.db.models import Max, Min
 from django.shortcuts import get_object_or_404, redirect, render
 
-from .forms import BacktestForm, YahooImportForm
-from .models import Backtest, Stock
+from .forms import BacktestForm, ForecastForm, YahooImportForm
+from .models import Backtest, Forecast, Stock
 from .providers import DataProviderError
-from .services import import_yahoo_data, run_and_save
+from .services import import_yahoo_data, run_and_save, run_and_save_forecast
 from .strategies import STRATEGY_CLASSES, get_strategy_class
 
 
@@ -40,15 +40,59 @@ def _strategy_metadata():
 def index(request):
     stocks = Stock.objects.all()
     backtests = Backtest.objects.select_related("stock")[:15]
+    forecasts = Forecast.objects.select_related("stock")[:10]
     context = {
         "form": BacktestForm(),
         "import_form": YahooImportForm(),
+        "forecast_form": ForecastForm(),
         "stocks": stocks,
         "backtests": backtests,
+        "forecasts": forecasts,
         "strategies": STRATEGY_CLASSES,
         "strategy_meta_json": json.dumps(_strategy_metadata(), ensure_ascii=False),
     }
     return render(request, "trading/index.html", context)
+
+
+def run_forecast_view(request):
+    if request.method != "POST":
+        return redirect("trading:index")
+
+    form = ForecastForm(request.POST)
+    if not form.is_valid():
+        for field, errors in form.errors.items():
+            for err in errors:
+                messages.error(request, f"{field}: {err}")
+        return redirect("trading:index")
+
+    data = form.cleaned_data
+    try:
+        forecast = run_and_save_forecast(
+            stock=data["stock"],
+            horizon_days=data["horizon_days"],
+            threshold=data["threshold"],
+            n_sims=data["n_sims"],
+            method=data["method"],
+            news_text=data["news_text"],
+        )
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect("trading:index")
+
+    messages.success(request, "予測を実行しました。")
+    return redirect("trading:forecast_detail", pk=forecast.pk)
+
+
+def forecast_detail(request, pk):
+    forecast = get_object_or_404(
+        Forecast.objects.select_related("stock"), pk=pk
+    )
+    context = {
+        "forecast": forecast,
+        "bands_json": json.dumps(forecast.bands),
+        "news_lines": [ln for ln in forecast.news_text.splitlines() if ln.strip()],
+    }
+    return render(request, "trading/forecast_detail.html", context)
 
 
 def import_yahoo_view(request):
@@ -175,6 +219,7 @@ def stock_detail(request, symbol):
         "first_date": agg["first"],
         "last_date": agg["last"],
         "backtests": stock.backtests.all()[:20],
+        "forecasts": stock.forecasts.all()[:10],
         "price_json": json.dumps(
             [
                 {"date": p["date"].strftime("%Y-%m-%d"), "value": p["close"]}

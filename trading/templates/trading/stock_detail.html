@@ -39,6 +39,28 @@
   {% endif %}
 </div>
 
+{% if forecasts %}
+<div class="card" style="margin-top:20px;">
+  <h2>この銘柄の上昇確率予測</h2>
+  <table>
+    <thead>
+      <tr><th class="num">しきい値</th><th class="num">期間</th><th class="num">到達確率</th><th class="num">センチメント</th><th>日時</th></tr>
+    </thead>
+    <tbody>
+    {% for f in forecasts %}
+      <tr>
+        <td class="num"><a href="{% url 'trading:forecast_detail' f.pk %}">+{{ f.threshold|floatformat:0 }}%</a></td>
+        <td class="num">{{ f.horizon_days }}日</td>
+        <td class="num {% if f.hit_probability >= 0.2 %}pos{% endif %}">{{ f.hit_probability|floatformat:3 }}</td>
+        <td class="num {% if f.news_sentiment > 0 %}pos{% elif f.news_sentiment < 0 %}neg{% endif %}">{{ f.news_sentiment|floatformat:2 }}</td>
+        <td class="muted">{{ f.created_at|date:"m/d H:i" }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
 <script id="price-data" type="application/json">{{ price_json|safe }}</script>
 <script>
   const points = JSON.parse(document.getElementById("price-data").textContent);

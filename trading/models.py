@@ -95,3 +95,62 @@ class Trade(models.Model):
 
     def __str__(self):
         return f"{self.side} {self.shares:.2f} @ {self.price:.2f}"
+
+
+class Forecast(models.Model):
+    """A Monte-Carlo forecast of the probability of a large upside move.
+
+    Estimates P(price reaches reference * (1 + threshold) at any point within
+    ``horizon_days`` trading days), optionally tilted by same-day news
+    sentiment.
+    """
+
+    METHOD_CHOICES = [
+        ("ensemble", "アンサンブル（ブートストラップ＋GBM）"),
+        ("bootstrap", "ヒストリカル・ブートストラップ"),
+        ("gbm", "パラメトリック GBM"),
+    ]
+
+    stock = models.ForeignKey(Stock, on_delete=models.CASCADE, related_name="forecasts")
+
+    horizon_days = models.IntegerField(default=5)
+    threshold = models.FloatField(default=0.10, help_text="Upside target as a fraction")
+    n_sims = models.IntegerField(default=10_000)
+    method = models.CharField(max_length=20, choices=METHOD_CHOICES, default="ensemble")
+
+    reference_price = models.FloatField()
+
+    # Headline result: probability of hitting the target within the horizon.
+    hit_probability = models.FloatField()
+    prob_up = models.FloatField(default=0.0)
+
+    expected_max_return = models.FloatField(default=0.0)
+    median_max_return = models.FloatField(default=0.0)
+    p5_return = models.FloatField(default=0.0)
+    p50_return = models.FloatField(default=0.0)
+    p95_return = models.FloatField(default=0.0)
+
+    # News influence.
+    news_text = models.TextField(blank=True)
+    news_sentiment = models.FloatField(default=0.0)
+    drift_adjust = models.FloatField(default=0.0)
+    vol_adjust = models.FloatField(default=1.0)
+    matched_keywords = models.JSONField(default=list, blank=True)
+
+    # Per-day percentile price bands for the fan chart.
+    bands = models.JSONField(default=dict, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return (
+            f"{self.stock.symbol} +{self.threshold:.0%} in {self.horizon_days}d "
+            f"= {self.hit_probability:.1%}"
+        )
+
+    @property
+    def target_price(self):
+        return self.reference_price * (1 + self.threshold)

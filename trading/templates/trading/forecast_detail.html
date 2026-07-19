@@ -1,0 +1,124 @@
+{% extends "trading/base.html" %}
+
+{% block title %}予測 — {{ forecast.stock.symbol }}{% endblock %}
+
+{% block content %}
+<p><a href="{% url 'trading:stock_detail' forecast.stock.symbol %}">← {{ forecast.stock.symbol }}</a></p>
+
+<div class="card">
+  <h2>
+    {{ forecast.stock.symbol }}
+    <span class="muted">が {{ forecast.horizon_days }} 営業日以内に +{{ forecast.threshold|floatformat:0 }}% 以上へ到達する確率</span>
+  </h2>
+
+  <div style="text-align:center; margin:18px 0;">
+    <div class="muted">推定到達確率</div>
+    <div style="font-size:56px; font-weight:800; line-height:1.1;"
+         class="{% if forecast.hit_probability >= 0.2 %}pos{% elif forecast.hit_probability < 0.05 %}neg{% endif %}">
+      {{ forecast.hit_probability|floatformat:3 }}
+    </div>
+    <div class="muted">
+      基準価格 {{ forecast.reference_price|floatformat:2 }}（直近終値≒翌日始値）
+      → 目標 {{ forecast.target_price|floatformat:2 }}
+    </div>
+  </div>
+
+  <div class="metrics">
+    <div class="metric">
+      <div class="k">到達確率（+{{ forecast.threshold|floatformat:0 }}%）</div>
+      <div class="v">{{ forecast.hit_probability|floatformat:3 }}</div>
+    </div>
+    <div class="metric">
+      <div class="k">上昇で終える確率</div>
+      <div class="v">{{ forecast.prob_up|floatformat:3 }}</div>
+    </div>
+    <div class="metric">
+      <div class="k">期間中の最大上昇（平均）</div>
+      <div class="v {% if forecast.expected_max_return >= 0 %}pos{% endif %}">{{ forecast.expected_max_return|floatformat:3 }}</div>
+    </div>
+    <div class="metric">
+      <div class="k">終値リターン中央値</div>
+      <div class="v {% if forecast.p50_return >= 0 %}pos{% else %}neg{% endif %}">{{ forecast.p50_return|floatformat:3 }}</div>
+    </div>
+    <div class="metric">
+      <div class="k">下位5% / 上位5%</div>
+      <div class="v" style="font-size:16px;">{{ forecast.p5_return|floatformat:3 }} / {{ forecast.p95_return|floatformat:3 }}</div>
+    </div>
+    <div class="metric">
+      <div class="k">手法 / 試行回数</div>
+      <div class="v" style="font-size:15px;">{{ forecast.get_method_display }}<br>{{ forecast.n_sims }} 回</div>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:20px;">
+  <h2>ニュースの影響</h2>
+  {% if forecast.news_text %}
+    <p>
+      センチメント:
+      <strong class="{% if forecast.news_sentiment > 0 %}pos{% elif forecast.news_sentiment < 0 %}neg{% endif %}">
+        {{ forecast.news_sentiment|floatformat:3 }}
+      </strong>
+      （-1〜+1）／ 適用したドリフト補正:
+      <strong>{{ forecast.drift_adjust|floatformat:4 }}/日</strong>
+      ／ ボラティリティ倍率: <strong>×{{ forecast.vol_adjust|floatformat:2 }}</strong>
+    </p>
+    {% if forecast.matched_keywords %}
+      <p class="muted">検出キーワード:</p>
+      <div class="chart-legend">
+        {% for kw in forecast.matched_keywords %}
+          <span class="badge {% if kw.polarity == 'pos' %}buy{% else %}sell{% endif %}">
+            {{ kw.term }} ×{{ kw.count }}（{{ kw.weight }}）
+          </span>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="muted">辞書に一致するキーワードは見つかりませんでした（中立として扱いました）。</p>
+    {% endif %}
+    {% if news_lines %}
+      <p class="muted" style="margin-top:12px;">入力ニュース:</p>
+      <ul>{% for ln in news_lines %}<li>{{ ln }}</li>{% endfor %}</ul>
+    {% endif %}
+  {% else %}
+    <p class="muted">ニュースは入力されていません（価格データのみで予測しています）。</p>
+  {% endif %}
+</div>
+
+<div class="grid cols-2" style="margin-top:20px;">
+  <div class="card">
+    <h2>価格パスの分布（ファンチャート）</h2>
+    <canvas id="fan"></canvas>
+    <div class="chart-legend">
+      <span><i class="swatch" style="background:rgba(56,189,248,.5)"></i>25–75パーセンタイル</span>
+      <span><i class="swatch" style="background:rgba(56,189,248,.2)"></i>10–90パーセンタイル</span>
+      <span><i class="swatch" style="background:#f59e0b"></i>+{{ forecast.threshold|floatformat:0 }}% 目標</span>
+    </div>
+  </div>
+  <div class="card">
+    <h2>期間中の最大上昇率の分布</h2>
+    <canvas id="hist"></canvas>
+    <p class="muted">オレンジの線が目標（+{{ forecast.threshold|floatformat:0 }}%）。右側（緑）の面積が到達確率に対応します。</p>
+  </div>
+</div>
+
+<p class="muted" style="margin-top:16px; font-size:13px;">
+  ※ これは過去データに基づくモンテカルロ・シミュレーションであり、将来の株価を保証するものではありません。
+  終値ベースのため、ザラ場高値での到達はやや過小評価されます。投資判断は自己責任で行ってください。
+</p>
+
+<script id="bands-data" type="application/json">{{ bands_json|safe }}</script>
+<script>
+  const bands = JSON.parse(document.getElementById("bands-data").textContent);
+  const threshold = {{ forecast.reference_price }} * (1 + {{ forecast.threshold }});
+  const fan = document.getElementById("fan");
+  const hist = document.getElementById("hist");
+  const thrReturn = {{ forecast.threshold }};
+
+  function render() {
+    drawFanChart(fan, bands, { threshold: threshold });
+    if (bands.hist) drawHistogram(hist, bands.hist, { threshold: thrReturn });
+  }
+  render();
+  window.addEventListener("resize", render);
+</script>
+{% endblock %}

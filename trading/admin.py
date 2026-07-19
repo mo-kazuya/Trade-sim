@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Backtest, PriceBar, Stock, Trade
+from .models import Backtest, Forecast, PriceBar, Stock, Trade
 
 
 @admin.register(Stock)
@@ -37,3 +37,12 @@ class BacktestAdmin(admin.ModelAdmin):
 class TradeAdmin(admin.ModelAdmin):
     list_display = ("backtest", "date", "side", "price", "shares", "value", "pnl")
     list_filter = ("side",)
+
+
+@admin.register(Forecast)
+class ForecastAdmin(admin.ModelAdmin):
+    list_display = (
+        "id", "stock", "threshold", "horizon_days",
+        "hit_probability", "news_sentiment", "method", "created_at",
+    )
+    list_filter = ("method", "stock")

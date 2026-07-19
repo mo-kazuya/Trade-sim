@@ -2,7 +2,9 @@
 
 from .data import bars_to_dataframe
 from .engine import run_backtest
-from .models import Backtest, PriceBar, Stock, Trade
+from .forecast import run_forecast
+from .models import Backtest, Forecast, PriceBar, Stock, Trade
+from .news import news_adjustments, score_news
 from .providers import fetch_yahoo_ohlc
 from .strategies import build_strategy, get_strategy_class
 
@@ -93,3 +95,51 @@ def run_and_save(stock, strategy_key, params=None, initial_cash=100_000.0,
         ]
     )
     return backtest
+
+
+def run_and_save_forecast(stock, *, horizon_days=5, threshold=0.10, n_sims=10_000,
+                          method="ensemble", news_text="", seed=None):
+    """Forecast the probability of a large upside move and persist the result.
+
+    Combines a Monte-Carlo simulation of future price paths with same-day news
+    sentiment, which tilts the simulation's drift and volatility.
+    """
+    closes = list(stock.bars.order_by("date").values_list("close", flat=True))
+    if len(closes) < 2:
+        raise ValueError("この銘柄には十分な価格データがありません（2 本以上必要です）。")
+
+    sentiment, matched = score_news(news_text)
+    drift_adjust, vol_adjust = news_adjustments(sentiment)
+
+    result = run_forecast(
+        closes,
+        horizon_days=horizon_days,
+        threshold=threshold,
+        n_sims=n_sims,
+        method=method,
+        drift_adjust=drift_adjust,
+        vol_adjust=vol_adjust,
+        seed=seed,
+    )
+
+    return Forecast.objects.create(
+        stock=stock,
+        horizon_days=result.horizon_days,
+        threshold=result.threshold,
+        n_sims=result.n_sims,
+        method=result.method,
+        reference_price=result.reference_price,
+        hit_probability=result.hit_probability,
+        prob_up=result.prob_up,
+        expected_max_return=result.expected_max_return,
+        median_max_return=result.median_max_return,
+        p5_return=result.p5_return,
+        p50_return=result.p50_return,
+        p95_return=result.p95_return,
+        news_text=news_text,
+        news_sentiment=sentiment,
+        drift_adjust=drift_adjust,
+        vol_adjust=vol_adjust,
+        matched_keywords=matched,
+        bands={**result.bands, "hist": result.max_return_hist},
+    )

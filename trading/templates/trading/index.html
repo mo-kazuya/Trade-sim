@@ -104,6 +104,67 @@
   {% endif %}
 </div>
 
+<div class="card" style="margin-top:20px;">
+  <h2>🔮 上昇確率を予測する</h2>
+  <p class="muted">
+    モンテカルロ・シミュレーションと当日ニュースから、指定期間内に翌日始値を
+    しきい値以上に上回る確率を推定します。
+  </p>
+  {% if stocks %}
+  <form method="post" action="{% url 'trading:run_forecast' %}">
+    {% csrf_token %}
+    <div class="grid cols-2">
+      <div>
+        <label for="id_stock">{{ forecast_form.stock.label }}</label>
+        {{ forecast_form.stock }}
+        <label for="id_horizon_days">{{ forecast_form.horizon_days.label }}</label>
+        {{ forecast_form.horizon_days }}
+        <div class="help">{{ forecast_form.horizon_days.help_text }}</div>
+        <label for="id_threshold">{{ forecast_form.threshold.label }}</label>
+        {{ forecast_form.threshold }}
+        <div class="help">{{ forecast_form.threshold.help_text }}</div>
+      </div>
+      <div>
+        <label for="id_method">{{ forecast_form.method.label }}</label>
+        {{ forecast_form.method }}
+        <label for="id_n_sims">{{ forecast_form.n_sims.label }}</label>
+        {{ forecast_form.n_sims }}
+        <label for="id_news_text">{{ forecast_form.news_text.label }}</label>
+        {{ forecast_form.news_text }}
+        <div class="help">{{ forecast_form.news_text.help_text }}</div>
+      </div>
+    </div>
+    <button class="btn" type="submit">予測する</button>
+  </form>
+  {% else %}
+    <p class="muted">先に銘柄データを用意してください。</p>
+  {% endif %}
+</div>
+
+{% if forecasts %}
+<div class="card" style="margin-top:20px;">
+  <h2>最近の予測</h2>
+  <table>
+    <thead>
+      <tr><th>銘柄</th><th class="num">しきい値</th><th class="num">期間</th>
+        <th class="num">到達確率</th><th class="num">センチメント</th><th>日時</th></tr>
+    </thead>
+    <tbody>
+    {% for f in forecasts %}
+      <tr>
+        <td><a href="{% url 'trading:forecast_detail' f.pk %}">{{ f.stock.symbol }}</a></td>
+        <td class="num">+{{ f.threshold|floatformat:0 }}%</td>
+        <td class="num">{{ f.horizon_days }}日</td>
+        <td class="num {% if f.hit_probability >= 0.2 %}pos{% endif %}">{{ f.hit_probability|floatformat:3 }}</td>
+        <td class="num {% if f.news_sentiment > 0 %}pos{% elif f.news_sentiment < 0 %}neg{% endif %}">{{ f.news_sentiment|floatformat:2 }}</td>
+        <td class="muted">{{ f.created_at|date:"m/d H:i" }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
 <script id="strategy-meta" type="application/json">{{ strategy_meta_json|safe }}</script>
 <script>
   const META = JSON.parse(document.getElementById("strategy-meta").textContent);

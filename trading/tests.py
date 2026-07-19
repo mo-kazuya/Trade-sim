@@ -7,9 +7,11 @@ from django.test import TestCase
 
 from .data import generate_synthetic_ohlc
 from .engine import run_backtest
-from .models import Backtest, PriceBar, Stock, Trade
+from .forecast import run_forecast
+from .models import Backtest, Forecast, PriceBar, Stock, Trade
+from .news import news_adjustments, score_news
 from .providers import DataProviderError, parse_chart_payload
-from .services import import_yahoo_data, run_and_save
+from .services import import_yahoo_data, run_and_save, run_and_save_forecast
 from .strategies import STRATEGIES, build_strategy
 
 
@@ -169,6 +171,103 @@ class YahooProviderTests(TestCase):
         self.assertEqual(stock.bars.count(), 2)
 
 
+class NewsTests(TestCase):
+    def test_positive_news_scores_positive(self):
+        s, matched = score_news("A社をTOBで買収、上方修正も発表")
+        self.assertGreater(s, 0)
+        self.assertTrue(any(m["polarity"] == "pos" for m in matched))
+
+    def test_negative_news_scores_negative(self):
+        s, matched = score_news("業績を下方修正、赤字転落で急落")
+        self.assertLess(s, 0)
+        self.assertTrue(any(m["polarity"] == "neg" for m in matched))
+
+    def test_english_case_insensitive(self):
+        s, _ = score_news("Company BEATS estimates and raised guidance")
+        self.assertGreater(s, 0)
+
+    def test_neutral_news_is_zero(self):
+        s, matched = score_news("本日は晴天なり")
+        self.assertEqual(s, 0.0)
+        self.assertEqual(matched, [])
+
+    def test_sentiment_is_bounded(self):
+        s, _ = score_news("買収 " * 50)
+        self.assertLessEqual(s, 1.0)
+        self.assertGreater(s, 0.9)
+
+    def test_positive_sentiment_increases_drift_and_vol(self):
+        drift, vol = news_adjustments(0.8)
+        self.assertGreater(drift, 0)
+        self.assertGreater(vol, 1.0)
+        neg_drift, neg_vol = news_adjustments(-0.8)
+        self.assertLess(neg_drift, 0)
+        self.assertGreater(neg_vol, 1.0)  # bad news also raises uncertainty
+
+
+class ForecastEngineTests(TestCase):
+    def setUp(self):
+        bars = generate_synthetic_ohlc(days=400, seed=99)
+        self.closes = [b["close"] for b in bars]
+
+    def test_probability_is_in_unit_interval(self):
+        r = run_forecast(self.closes, horizon_days=5, threshold=0.10,
+                         n_sims=5000, seed=1)
+        self.assertGreaterEqual(r.hit_probability, 0.0)
+        self.assertLessEqual(r.hit_probability, 1.0)
+        self.assertEqual(len(r.bands["p50"]), 6)  # horizon + day 0
+
+    def test_higher_threshold_lowers_probability(self):
+        low = run_forecast(self.closes, threshold=0.05, n_sims=8000, seed=2)
+        high = run_forecast(self.closes, threshold=0.30, n_sims=8000, seed=2)
+        self.assertGreater(low.hit_probability, high.hit_probability)
+
+    def test_longer_horizon_raises_probability(self):
+        short = run_forecast(self.closes, horizon_days=3, threshold=0.10,
+                             n_sims=8000, seed=3)
+        long = run_forecast(self.closes, horizon_days=15, threshold=0.10,
+                            n_sims=8000, seed=3)
+        self.assertGreaterEqual(long.hit_probability, short.hit_probability)
+
+    def test_positive_drift_raises_probability(self):
+        base = run_forecast(self.closes, threshold=0.10, n_sims=10000,
+                            drift_adjust=0.0, seed=4)
+        tilted = run_forecast(self.closes, threshold=0.10, n_sims=10000,
+                              drift_adjust=0.02, seed=4)
+        self.assertGreater(tilted.hit_probability, base.hit_probability)
+
+    def test_reference_price_is_last_close(self):
+        r = run_forecast(self.closes, n_sims=1000, seed=5)
+        self.assertEqual(r.reference_price, self.closes[-1])
+
+
+class ForecastServiceTests(TestCase):
+    def setUp(self):
+        self.stock = Stock.objects.create(symbol="FCT", name="Forecast Co")
+        bars = generate_synthetic_ohlc(days=300, seed=21)
+        PriceBar.objects.bulk_create(
+            [PriceBar(stock=self.stock, **b) for b in bars]
+        )
+
+    def test_run_and_save_forecast_persists(self):
+        f = run_and_save_forecast(
+            self.stock, horizon_days=5, threshold=0.10, n_sims=3000,
+            news_text="買収を発表、上方修正", seed=7,
+        )
+        self.assertIsInstance(f, Forecast)
+        self.assertEqual(Forecast.objects.count(), 1)
+        self.assertGreater(f.news_sentiment, 0)
+        self.assertGreater(f.drift_adjust, 0)
+        self.assertGreater(f.vol_adjust, 1.0)
+        self.assertGreaterEqual(f.hit_probability, 0.0)
+        self.assertLessEqual(f.hit_probability, 1.0)
+
+    def test_forecast_without_data_raises(self):
+        empty = Stock.objects.create(symbol="NONE")
+        with self.assertRaises(ValueError):
+            run_and_save_forecast(empty)
+
+
 class ViewTests(TestCase):
     def setUp(self):
         self.stock = Stock.objects.create(symbol="VUE", name="View Co")
@@ -198,6 +297,20 @@ class ViewTests(TestCase):
         resp = self.client.get(f"/stock/{self.stock.symbol}/compare/")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(Backtest.objects.count(), len(STRATEGIES))
+
+    def test_run_forecast_post_creates_and_redirects(self):
+        resp = self.client.post("/forecast/", {
+            "stock": self.stock.id,
+            "horizon_days": 5,
+            "threshold": 0.10,
+            "n_sims": 2000,
+            "method": "ensemble",
+            "news_text": "上方修正を発表",
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(Forecast.objects.count(), 1)
+        detail = self.client.get(resp.url)
+        self.assertEqual(detail.status_code, 200)
 
     def test_import_yahoo_view(self):
         info = {"symbol": "MSFT", "name": "Microsoft", "currency": "USD"}

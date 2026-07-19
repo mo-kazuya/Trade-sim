@@ -34,6 +34,36 @@ class YahooImportForm(forms.Form):
         return value
 
 
+class ForecastForm(forms.Form):
+    stock = forms.ModelChoiceField(queryset=Stock.objects.all(), label="銘柄")
+    horizon_days = forms.IntegerField(
+        label="予測期間（営業日）", initial=5, min_value=1, max_value=60,
+        help_text="「一週間後まで」は約 5 営業日です。",
+    )
+    threshold = forms.FloatField(
+        label="上昇しきい値", initial=0.10, min_value=0.001, max_value=2.0,
+        help_text="翌日始値に対する上昇率（0.10 = +10%）。",
+    )
+    n_sims = forms.IntegerField(
+        label="シミュレーション回数", initial=10000, min_value=100, max_value=200000,
+    )
+    method = forms.ChoiceField(
+        label="手法",
+        choices=[
+            ("ensemble", "アンサンブル（ブートストラップ＋GBM）"),
+            ("bootstrap", "ヒストリカル・ブートストラップ"),
+            ("gbm", "パラメトリック GBM"),
+        ],
+        initial="ensemble",
+    )
+    news_text = forms.CharField(
+        label="当日のニュース（任意）", required=False,
+        widget=forms.Textarea(attrs={"rows": 4,
+            "placeholder": "見出しや記事を貼り付けてください（1 行 1 件）。"}),
+        help_text="キーワード辞書でセンチメントを判定し、予測に反映します。",
+    )
+
+
 class BacktestForm(forms.Form):
     stock = forms.ModelChoiceField(
         queryset=Stock.objects.all(), label="銘柄"
