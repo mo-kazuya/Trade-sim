@@ -32,6 +32,25 @@
   </div>
 
   <div class="card">
+    <h2>Yahoo ファイナンスから取り込む</h2>
+    <p class="muted">実際の株価データをダウンロードして銘柄に追加します。</p>
+    <form method="post" action="{% url 'trading:import_yahoo' %}">
+      {% csrf_token %}
+      <label for="id_symbol">{{ import_form.symbol.label }}</label>
+      {{ import_form.symbol }}
+      <div class="help">{{ import_form.symbol.help_text }}</div>
+
+      <label for="id_range_">{{ import_form.range_.label }}</label>
+      {{ import_form.range_ }}
+
+      <label for="id_interval">{{ import_form.interval.label }}</label>
+      {{ import_form.interval }}
+
+      <button class="btn secondary" type="submit">ダウンロード</button>
+    </form>
+  </div>
+
+  <div class="card">
     <h2>銘柄一覧</h2>
     {% if stocks %}
     <table>

@@ -4,9 +4,10 @@ from django.contrib import messages
 from django.db.models import Max, Min
 from django.shortcuts import get_object_or_404, redirect, render
 
-from .forms import BacktestForm
+from .forms import BacktestForm, YahooImportForm
 from .models import Backtest, Stock
-from .services import run_and_save
+from .providers import DataProviderError
+from .services import import_yahoo_data, run_and_save
 from .strategies import STRATEGY_CLASSES, get_strategy_class
 
 
@@ -41,12 +42,43 @@ def index(request):
     backtests = Backtest.objects.select_related("stock")[:15]
     context = {
         "form": BacktestForm(),
+        "import_form": YahooImportForm(),
         "stocks": stocks,
         "backtests": backtests,
         "strategies": STRATEGY_CLASSES,
         "strategy_meta_json": json.dumps(_strategy_metadata(), ensure_ascii=False),
     }
     return render(request, "trading/index.html", context)
+
+
+def import_yahoo_view(request):
+    if request.method != "POST":
+        return redirect("trading:index")
+
+    form = YahooImportForm(request.POST)
+    if not form.is_valid():
+        for field, errors in form.errors.items():
+            for err in errors:
+                messages.error(request, f"{field}: {err}")
+        return redirect("trading:index")
+
+    data = form.cleaned_data
+    try:
+        stock, created = import_yahoo_data(
+            data["symbol"],
+            range_=data["range_"],
+            interval=data["interval"],
+        )
+    except (DataProviderError, ValueError) as exc:
+        messages.error(request, str(exc))
+        return redirect("trading:index")
+
+    messages.success(
+        request,
+        f"{stock.symbol}: {created} 本の新規バーを取り込みました"
+        f"（合計 {stock.bar_count} 本）。",
+    )
+    return redirect("trading:stock_detail", symbol=stock.symbol)
 
 
 def run_backtest_view(request):

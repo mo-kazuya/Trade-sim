@@ -1,7 +1,37 @@
 from django import forms
 
 from .models import Stock
+from .providers import VALID_INTERVALS, VALID_RANGES
 from .strategies import STRATEGY_CLASSES
+
+
+class YahooImportForm(forms.Form):
+    symbol = forms.CharField(
+        label="銘柄コード", max_length=20,
+        help_text="例: AAPL（米国株）／ 7203.T（トヨタ）／ ^N225（日経平均）",
+    )
+    range_ = forms.ChoiceField(
+        label="取得期間",
+        choices=[(r, r) for r in ["1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "max"]],
+        initial="2y",
+    )
+    interval = forms.ChoiceField(
+        label="足の種類",
+        choices=[("1d", "日足"), ("1wk", "週足"), ("1mo", "月足")],
+        initial="1d",
+    )
+
+    def clean_range_(self):
+        value = self.cleaned_data["range_"]
+        if value not in VALID_RANGES:
+            raise forms.ValidationError("無効な期間です。")
+        return value
+
+    def clean_interval(self):
+        value = self.cleaned_data["interval"]
+        if value not in VALID_INTERVALS:
+            raise forms.ValidationError("無効な足種別です。")
+        return value
 
 
 class BacktestForm(forms.Form):

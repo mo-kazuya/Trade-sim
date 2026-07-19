@@ -1,3 +1,6 @@
+import datetime as dt
+from unittest import mock
+
 import numpy as np
 import pandas as pd
 from django.test import TestCase
@@ -5,7 +8,8 @@ from django.test import TestCase
 from .data import generate_synthetic_ohlc
 from .engine import run_backtest
 from .models import Backtest, PriceBar, Stock, Trade
-from .services import run_and_save
+from .providers import DataProviderError, parse_chart_payload
+from .services import import_yahoo_data, run_and_save
 from .strategies import STRATEGIES, build_strategy
 
 
@@ -85,6 +89,86 @@ class ServiceTests(TestCase):
             run_and_save(empty, "buy_and_hold")
 
 
+def _yahoo_payload():
+    """A minimal but realistic Yahoo chart JSON payload for two bars."""
+    return {
+        "chart": {
+            "error": None,
+            "result": [
+                {
+                    "meta": {
+                        "symbol": "AAPL",
+                        "currency": "USD",
+                        "exchangeName": "NMS",
+                        "longName": "Apple Inc.",
+                    },
+                    "timestamp": [1704067200, 1704153600],
+                    "indicators": {
+                        "quote": [
+                            {
+                                "open": [100.0, 102.0],
+                                "high": [103.0, 104.0],
+                                "low": [99.0, 101.0],
+                                "close": [102.0, 103.5],
+                                "volume": [1000000, 1200000],
+                            }
+                        ],
+                        "adjclose": [{"adjclose": [101.5, 103.0]}],
+                    },
+                }
+            ],
+        }
+    }
+
+
+class YahooProviderTests(TestCase):
+    def test_parse_payload_extracts_bars(self):
+        info, bars = parse_chart_payload(_yahoo_payload())
+        self.assertEqual(info["symbol"], "AAPL")
+        self.assertEqual(info["currency"], "USD")
+        self.assertEqual(info["name"], "Apple Inc.")
+        self.assertEqual(len(bars), 2)
+        # Adjusted close is preferred when present.
+        self.assertEqual(bars[0]["close"], 101.5)
+        self.assertEqual(bars[0]["open"], 100.0)
+        self.assertEqual(bars[0]["volume"], 1000000)
+
+    def test_parse_skips_incomplete_rows(self):
+        payload = _yahoo_payload()
+        payload["chart"]["result"][0]["indicators"]["quote"][0]["close"][1] = None
+        payload["chart"]["result"][0]["indicators"]["adjclose"][0]["adjclose"][1] = None
+        _info, bars = parse_chart_payload(payload)
+        self.assertEqual(len(bars), 1)
+
+    def test_parse_raises_on_error_payload(self):
+        payload = {"chart": {"error": {"description": "Not Found"}, "result": None}}
+        with self.assertRaises(DataProviderError):
+            parse_chart_payload(payload)
+
+    def test_import_yahoo_data_upserts(self):
+        info = {"symbol": "AAPL", "name": "Apple Inc.", "currency": "USD"}
+        bars = [
+            {"date": dt.date(2024, 1, 1), "open": 100, "high": 103,
+             "low": 99, "close": 101.5, "volume": 1_000_000},
+            {"date": dt.date(2024, 1, 2), "open": 102, "high": 104,
+             "low": 101, "close": 103.0, "volume": 1_200_000},
+        ]
+        with mock.patch("trading.services.fetch_yahoo_ohlc",
+                        return_value=(info, bars)) as m:
+            stock, created = import_yahoo_data("aapl", range_="1y")
+        m.assert_called_once()
+        self.assertEqual(stock.symbol, "AAPL")
+        self.assertEqual(stock.name, "Apple Inc.")
+        self.assertEqual(created, 2)
+
+        # Re-importing the same bars should insert nothing (dedup by date).
+        with mock.patch("trading.services.fetch_yahoo_ohlc",
+                        return_value=(info, bars)):
+            stock, created = import_yahoo_data("AAPL")
+        self.assertEqual(created, 0)
+        self.assertEqual(stock.bars.count(), 2)
+
+
 class ViewTests(TestCase):
     def setUp(self):
         self.stock = Stock.objects.create(symbol="VUE", name="View Co")
@@ -114,3 +198,15 @@ class ViewTests(TestCase):
         resp = self.client.get(f"/stock/{self.stock.symbol}/compare/")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(Backtest.objects.count(), len(STRATEGIES))
+
+    def test_import_yahoo_view(self):
+        info = {"symbol": "MSFT", "name": "Microsoft", "currency": "USD"}
+        bars = [{"date": dt.date(2024, 3, 1), "open": 400, "high": 405,
+                 "low": 398, "close": 402, "volume": 900_000}]
+        with mock.patch("trading.services.fetch_yahoo_ohlc",
+                        return_value=(info, bars)):
+            resp = self.client.post("/import/yahoo/", {
+                "symbol": "MSFT", "range_": "1y", "interval": "1d",
+            })
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(Stock.objects.filter(symbol="MSFT").exists())

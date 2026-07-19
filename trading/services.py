@@ -2,8 +2,42 @@
 
 from .data import bars_to_dataframe
 from .engine import run_backtest
-from .models import Backtest, Trade
+from .models import Backtest, PriceBar, Stock, Trade
+from .providers import fetch_yahoo_ohlc
 from .strategies import build_strategy, get_strategy_class
+
+
+def import_yahoo_data(symbol, *, range_="1y", start=None, end=None,
+                      interval="1d", name=""):
+    """Download OHLCV data from Yahoo Finance and store it as PriceBars.
+
+    Creates the Stock if needed and inserts only bars that don't already exist
+    (existing dates are left untouched). Returns ``(stock, num_created)``.
+    """
+    symbol = symbol.strip().upper()
+    if not symbol:
+        raise ValueError("銘柄コードを入力してください。")
+
+    info, bars = fetch_yahoo_ohlc(
+        symbol, range_=range_, start=start, end=end, interval=interval
+    )
+
+    stock, _ = Stock.objects.get_or_create(symbol=symbol)
+    display_name = name or info.get("name") or stock.name
+    if display_name and stock.name != display_name:
+        stock.name = display_name
+        stock.save(update_fields=["name"])
+
+    existing = set(
+        stock.bars.values_list("date", flat=True)
+    )
+    new_bars = [
+        PriceBar(stock=stock, **bar)
+        for bar in bars
+        if bar["date"] not in existing
+    ]
+    PriceBar.objects.bulk_create(new_bars)
+    return stock, len(new_bars)
 
 
 def run_and_save(stock, strategy_key, params=None, initial_cash=100_000.0,

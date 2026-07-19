@@ -21,6 +21,10 @@
   - 戦略パラメータをフォームで指定して実行
   - 資産推移（エクイティカーブ）と売買ポイントをチャート表示（依存ライブラリ不要の自作 Canvas チャート）
   - 1 銘柄に対して全戦略を一括実行して比較・ランキング
+- **Yahoo ファイナンスからの実データ取り込み**
+  - Web 画面（銘柄コード・期間・足種別を指定）またはコマンドから取得
+  - 米国株（`AAPL`）、日本株（`7203.T`）、指数（`^N225`）などに対応
+  - 分割・配当調整後の終値を使用、既存日付は重複させず追記
 - **合成価格データ生成コマンド**（オフラインでもすぐ試せます）
 
 ## セットアップ
@@ -60,6 +64,28 @@ python manage.py createsuperuser
 
 `--days` でバー数、`--reset` で既存データの削除ができます。
 
+## Yahoo ファイナンスから実データを取り込む
+
+Web 画面の「Yahoo ファイナンスから取り込む」フォーム、またはコマンドで
+実際の価格データをダウンロードできます。
+
+```bash
+# 米国株を 2 年分、日足で取得
+python manage.py import_yahoo AAPL MSFT --range 2y --interval 1d
+
+# 日本株（トヨタ）と日経平均を 5 年分
+python manage.py import_yahoo 7203.T ^N225 --range 5y
+```
+
+- `--range`: `1mo` / `3mo` / `6mo` / `1y` / `2y` / `5y` / `10y` / `max`
+- `--interval`: `1d`（日足）/ `1wk`（週足）/ `1mo`（月足）
+- 銘柄コードは Yahoo ファイナンスの表記に従います（日本株は `コード.T`、指数は `^` 始まり）。
+- 既に取り込み済みの日付はスキップされるため、同じコマンドを再実行すると差分だけ追記されます。
+
+> 取得には Yahoo ファイナンス（`query1.finance.yahoo.com`）への
+> アウトバウンド HTTPS 接続が必要です。外部 API キーは不要です。
+> ネットワークが遮断された環境では合成データ（`seed_data`）をご利用ください。
+
 ## 独自戦略の追加
 
 `trading/strategies/implementations.py` に `Strategy` を継承したクラスを追加し、
@@ -86,12 +112,14 @@ trading/
   models.py        Stock / PriceBar / Backtest / Trade
   strategies/      戦略フレームワークと各アルゴリズム
   engine.py        バックテストエンジン（約定・指標計算）
-  services.py      戦略実行と結果の永続化
+  providers.py     Yahoo ファイナンスからの価格取得・解析
+  services.py      戦略実行・データ取り込みと永続化
   data.py          DataFrame 変換・合成データ生成
   views.py         画面（ダッシュボード / 結果 / 比較）
   templates/       HTML テンプレート
   static/          CSS と自作チャート（chart.js）
-  management/commands/seed_data.py   サンプルデータ生成
+  management/commands/seed_data.py     サンプルデータ生成
+  management/commands/import_yahoo.py  Yahoo データ取り込み
 ```
 
 ## テスト
@@ -104,9 +132,10 @@ python manage.py test trading
 
 ## 実データについて
 
-本アプリは既定で**合成データ**を用いるため、外部 API なしで動作します。
-実際の株価を使う場合は、CSV から `PriceBar`（`date, open, high, low, close, volume`）を
-取り込むか、任意のデータ提供元から取得して `PriceBar` を作成してください。
+本アプリは外部 API なしでも**合成データ**（`seed_data`）で動作します。
+実際の株価を使う場合は、上記の **Yahoo ファイナンス取り込み** が最も手軽です。
+他のデータ提供元を使う場合は、`PriceBar`（`date, open, high, low, close, volume`）を
+直接作成すれば同じようにバックテストできます。
 
 ## 免責事項
 
