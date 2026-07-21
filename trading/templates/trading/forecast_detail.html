@@ -107,6 +107,9 @@
 </p>
 
 <script id="bands-data" type="application/json">{{ bands_json|safe }}</script>
+{% endblock %}
+
+{% block scripts %}
 <script>
   const bands = JSON.parse(document.getElementById("bands-data").textContent);
   const threshold = {{ forecast.reference_price }} * (1 + {{ forecast.threshold }});

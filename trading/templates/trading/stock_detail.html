@@ -62,6 +62,9 @@
 {% endif %}
 
 <script id="price-data" type="application/json">{{ price_json|safe }}</script>
+{% endblock %}
+
+{% block scripts %}
 <script>
   const points = JSON.parse(document.getElementById("price-data").textContent);
   const canvas = document.getElementById("price");

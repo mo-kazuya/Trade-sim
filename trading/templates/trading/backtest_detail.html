@@ -89,6 +89,9 @@
 </div>
 
 <script id="equity-data" type="application/json">{{ equity_json|safe }}</script>
+{% endblock %}
+
+{% block scripts %}
 <script>
   const curve = JSON.parse(document.getElementById("equity-data").textContent);
   const points = curve.map((p) => ({ date: p.date, value: p.value }));

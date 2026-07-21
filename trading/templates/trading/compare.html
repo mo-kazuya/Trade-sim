@@ -36,6 +36,9 @@
 </div>
 
 <script id="series-data" type="application/json">{{ series_json|safe }}</script>
+{% endblock %}
+
+{% block scripts %}
 <script>
   const raw = JSON.parse(document.getElementById("series-data").textContent);
   const series = raw.map((s, i) => ({
